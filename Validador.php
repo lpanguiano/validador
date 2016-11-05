@@ -1,8 +1,93 @@
 <?php
-class Validador {
-	private $reglaSimple;
+	/**
+	 * Modo de uso
+	 * para usarlo en la clase usuario
+	 *
+	 * require 'Validador.php';		// para importar el validador
+	 *
+	 * class Usuario{
+	 * 	use Validador;				// para usar los metodos del validador
+	 *
+	 * 	...
+	 * 	obligatorio un metodo Unico que indique si el campo es unico en la tabla
+	 * 	function Unico($campo, $id=0) {
+	        $db = $this->db;
+	        $sql = "SELECT 1 FROM ".self::$TABLA." WHERE nombre LIKE '$campo'";
+	        if($id > 0){
+	            $sql.=" AND id != $id";
+	        }
+	        $res = $db->query($sql);
+	        $num = $db->numRows($res);
+	        if ($num < 1) return true;
+	        else return false;
+    	}
 
-	private $Mensajes = [
+    	public function add($Datos=array()){	// para agregar nuevos registros usando el Validador
+			
+			$Datos = $this->Certificar($Datos,$this->Reglas);
+			// si se encuentra algun error se agregan al array $Datos
+			// y se les peude sar seguimeinto a esos errores de la sig manera
+			if ($Datos["Errores"] > 0) {        // Si hay errores incluirlos en la Respuesta
+                $Respuesta = ['Error' => 1,		// se agrega una variable para indicar qe hay error
+                    // ErrorTxt tendra el mensaje del error
+                    'ErrorTxt'    => "Se encontraron algunos errores de validacion (".$Datos["Errores"].")",
+
+                    // despues de esto vienen los mensajes de error para cada campo
+                    'sucursalErr' => $Datos["sucursalErr"],
+                    'rfcErr'      => $Datos["rfcErr"],
+                    ];
+            }
+            else{	// si no hay error se corre el query
+                $db = $this->db;
+                $result = $db->query("INSERT INTO ".self::$TABLA." (sucursal, rfc) VALUES (
+                    '".$Datos['sucursal']."', 
+                    '".$Datos['rfc']."')");
+                 // y se le debe asignar 0 a la key Error para la Respuesta
+                $Respuesta = ['Error' => 0, 'ErrorTxt' => "", 'insertId' => $idSucursal];// OK
+            }
+            return $Respuesta;
+    	}
+
+	 * 	
+	 * 
+	 * }
+	 *
+	 * $Datos = $this->Certificar($arrayconlosDatos,$Reglas,$idOpcional);
+	 *
+	 *
+	 * 
+	 private $ReglasEdicion = [
+		existe esta pendiente NO USAR AUN, NO USAR AUN, NO USAR AUN
+	    	"pendiente"   => "requerido|existe",
+
+	 	para que name sea 
+	 	obligatorio,
+	 	alfabetico,
+	 	mayor a 9 caracteres y de 12 como maximo
+	 	y para idicar que el campo debe ser unico en su "tabla"(modelo o clase), 
+	 	   si el campo debe ser el unico en otra "tabla"(modelo o clase) se indica unico:usuario
+	        "name"    => "requerido|alfanumerico|tamaño:9-12|unico", o
+	        "name"    => "alfanumerico|tamaño:9-12|unico:usuario", 
+
+		para restringir que edad sea un valor entero entre 1 y 20
+        	"edad"    => "entero|max:20|min:1",
+
+		cuando el campo solo puede tomar alguno de la lista
+	    	"piensauncolor" => "requerido|en:rojo,verde,azul", 
+
+		los demas son mas faciles de entender        
+		    "email"   => "email",
+		    "telefono"=> "tel",
+		    "fecha"   => "fecha",
+		    "comment" => "texto",
+		    "site"    => "www",
+        ];
+	 **/
+
+trait Validador {
+	protected $reglaSimple;
+
+	protected $Mensajes = [
 	"requerido"    => "Campo requerido. ",
 	"alfa"         => "Solo letras de la a a la z son permitidos. ",
 	"alfanumerico" => "Solo letras de la a a la z y numeros son permitidos. ",
@@ -19,6 +104,8 @@ class Validador {
 	"id"           => "Id invalido.",
 	"max"          => "Se requiere un valor numérico maximo de ",
 	"min"          => "Se requiere un valor numérico minimo de ",
+	"tamañoMin"    => "Se requiere un tamaño mayor a: ",
+	"tamañoMax"    => "Supero el tamaño maximo permitido",
 	"tel"          => "Formato valido =>  (032)555-5555. ",
 	"texto"        => "Caracteres permitidos: +&@#\/%?=~_|!:,.; ",
 	"unico"        => "El dato ya existe. ",
@@ -33,14 +120,15 @@ class Validador {
     }
 
     /**
-     * Valida los campos s en $arrCampos con las reglas de $arrReglas
+     * Valida los campos en $arrCampos con las reglas de $arrReglas
      * @method  Certificar
-     * @param   [Array]     $arrCampos  [campos a ser ingresados]
-     * @param   [Array]     $arrReglas  [reglas de de formato para cada campo]
-     * return   [Array]		$arrCampos  [array con los mensajes de error de cada campo]
+     * @param   [Array]     $arrCampos  campos a ser ingresados
+     * @param   [Array]     $arrReglas  reglas de de formato para cada campo
+     * @param   int         $idRegistro Es necesario cuando se usa la regla "unico"
+     * return   [Array]		$arrCampos  array con los mensajes de error de cada campo
      */
     
-	public function Certificar($arrCampos, $arrReglas){
+	public function Certificar($arrCampos, $arrReglas, $idRegistro=0){
 		$iErrores=0;
 		$reglaSimple[1]="";
 
@@ -129,7 +217,7 @@ class Validador {
 							}
 							break;
 						case 'id':
-							if (!preg_match("/^[0-9]*$/",$arrCampos[$campo]) and $arrCampos[$campo] > 0) {
+						      if (!preg_match("/^\d*$/",$arrCampos[$campo]) ) {
 								$Error = $this->Mensajes["id"];
 							}
 							break;
@@ -153,6 +241,16 @@ class Validador {
 								$Error = $this->Mensajes["min"].".";
 							}
 							break;
+						case 'tamaño':// $reglaSimple[1] vendria con algo como: "0-15" 
+							list($TamMin, $TamMax) = explode('-', $reglaSimple[1] );
+							$long=strlen($arrCampos[$campo]);
+							if ( $long < $TamMin ) {
+								$Error = $this->Mensajes["tamañoMin"]. $TamMin." caracteres";
+							}
+							if ( $long > $TamMax ) {
+								$Error = $this->Mensajes["tamañoMax"]. " (".$TamMax.")";
+							}
+							break;
 						case 'tel':
 							if (!preg_match('/^(\(?[0-9]{3,3}\)?|[0-9]{3,3}[-. ]?)[ ][0-9]{3,3}[-. ]?[0-9]{4,4}$/', $arrCampos[$campo])) {
 								$Error = $this->Mensajes["tel"];
@@ -167,13 +265,18 @@ class Validador {
 							}
 							break;
 						case 'unico':
-							$obj = new $reglaSimple[1];
-							if ( $obj->Unico($arrCampos[$campo]) ) {
-							  // OK. el texto $arrCampos[$campo] SI es unico en la tabla $reglaSimple[1]   
+							if (isset($reglaSimple[1])) {	// si hay un Objeto en al regla (unico:Objeto)
+								$obj = new $reglaSimple[1];	// crear nueva instancia de ese objeto
+							}
+							else {
+								$obj = $this;
+							}
+							if ( $obj->Unico($arrCampos[$campo],$idRegistro) ) {
+							  // OK. el texto $arrCampos[$campo] SI es unico en la tabla actual o en $reglaSimple[1]   
 							}
 							else{
 								$Error = $this->Mensajes["unico"];
-							}
+							}							
 							break;
 						case 'www':
 							if (!preg_match("/\b(?:(?:https?|ftp):\/\/|www\.)[-a-z0-9+&@#\/%?=~_|!:,.;]*[-a-z0-9+&@#\/%=~_|]/i", $arrCampos[$campo])) {
@@ -201,7 +304,13 @@ class Validador {
 	   return $Dato;
 	}
 	
-	public function EliminarErr($Datos){	// Elimina los campos de error 
+	/**
+	 * Elimina los campos de error (*Err) en array Datos 
+	 * para que se pueda hacer un ->query("INSERT INTO TABLA SET ?u", $Datos);
+	 * 
+	 * @param [type] $Datos array con keys del tipo *Err (Datos['usuarioErr'], Datos['emailErr'])
+	 */
+	public function EliminarErr($Datos){	// 
 	    foreach ($Datos as $key => $value) {
 	        if ( substr_compare($key,"Err",-3,3) == 0 ) {
 	            unset($Datos[$key]);
